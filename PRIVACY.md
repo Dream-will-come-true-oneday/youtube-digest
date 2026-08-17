@@ -15,6 +15,8 @@ Depending on the feature you use, YouTube Digest handles:
 - transcript context around a timestamped note;
 - content you ask to translate;
 - notes you save;
+- vocabulary terms and the DeepSeek explanations you choose to save, along with
+  their video and timestamp metadata;
 - Supadata and DeepSeek configuration, including API keys; and
 - cached transcript, digest, and translation results.
 
@@ -46,6 +48,7 @@ YouTube Digest uses Chrome's local extension storage, not a YouTube Digest cloud
 
 - Supadata and DeepSeek settings and API keys remain on the device in Chrome's extension storage.
 - Saved notes remain until you delete them or remove/clear the extension's data. The extension keeps up to 100 notes.
+- Saved vocabulary remains until you delete it or remove/clear the extension's data. The extension keeps up to 500 vocabulary entries.
 - Recent transcript, digest, and per-segment translation cache entries are stored
   locally. The cache is limited to 20 videos, and entries older than 30 days are
   removed when the side panel opens.
@@ -55,7 +58,8 @@ Chrome extension storage is not a password vault. Anyone with sufficient access 
 To remove data:
 
 - delete individual saved notes in YouTube Digest;
-- use the Options page to clear cached digests, delete all notes, or reset all extension data;
+- delete individual vocabulary entries or use the Vocabulary tab's Markdown/CSV export;
+- use the Options page to clear cached digests, delete all notes, delete all vocabulary, or reset all extension data;
 - remove the extension or clear its stored data from Chrome to delete all local settings, keys, notes, and cache entries; and
 - revoke keys in the Supadata or DeepSeek dashboard to stop their future use.
 

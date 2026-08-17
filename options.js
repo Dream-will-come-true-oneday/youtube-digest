@@ -1,12 +1,18 @@
 const YTD_OPTIONS = (() => {
   const LANGUAGE_STORAGE_KEY = "ytd_options_language";
+  const THEME_STORAGE_KEY = "ytd_options_theme";
   const PREVIEW_STORAGE_PREFIX = "youtubeDigestPreview:";
   const SUPPORTED_LANGUAGES = new Set(["en", "zh-CN"]);
+  const SUPPORTED_THEMES = new Set(["light", "dark", "system"]);
 
   const COPY = {
     en: {
       pageTitle: "YouTube Digest Settings",
       languageGroupLabel: "Interface language",
+      themeGroupLabel: "Theme",
+      themeLight: "Light",
+      themeDark: "Dark",
+      themeSystem: "System",
       heading: "Bring your own API keys",
       lede:
         "Keys stay in this Chrome profile and are sent only to Supadata and DeepSeek. This open-source extension has no developer server or analytics.",
@@ -48,9 +54,10 @@ const YTD_OPTIONS = (() => {
       copyCustomizationPrompt: "Copy edited prompt",
       localData: "Local data",
       localDataHelp:
-        "Digests, translations, and notes are stored only in this Chrome profile. You can remove them at any time.",
+        "Digests, translations, notes, and up to 500 vocabulary entries are stored only in this Chrome profile. You can remove or export them at any time.",
       clearCache: "Clear cached digests",
       deleteNotes: "Delete all notes",
+      deleteVocabulary: "Delete all vocabulary",
       resetData: "Reset extension data",
       footer:
         'Read <a href="PRIVACY.md" target="_blank">PRIVACY.md</a> in the repository for the complete data-flow description.',
@@ -68,8 +75,9 @@ const YTD_OPTIONS = (() => {
       clearedDigests: ({ count }) =>
         `Cleared ${count} cached digest${count === 1 ? "" : "s"}.`,
       notesDeleted: "Deleted all saved notes.",
+      vocabularyDeleted: "Deleted all saved vocabulary.",
       resetConfirm:
-        "Delete API keys, cached digests, translations, and saved notes from this Chrome profile?",
+        "Delete API keys, cached digests, translations, saved notes, and vocabulary from this Chrome profile?",
       allDataDeleted: "All YouTube Digest data was deleted.",
       settingsLoadFailed:
         "Could not load saved settings. You can still preview this page.",
@@ -77,6 +85,10 @@ const YTD_OPTIONS = (() => {
     "zh-CN": {
       pageTitle: "YouTube Digest 设置",
       languageGroupLabel: "界面语言",
+      themeGroupLabel: "主题",
+      themeLight: "亮色",
+      themeDark: "暗色",
+      themeSystem: "跟随系统",
       heading: "使用你自己的 API 密钥",
       lede:
         "密钥仅保存在当前 Chrome 个人资料中，只会发送给 Supadata 和 DeepSeek。本开源扩展没有开发者服务器，也不使用分析服务。",
@@ -116,9 +128,10 @@ const YTD_OPTIONS = (() => {
       copyCustomizationPrompt: "复制编辑后的提示词",
       localData: "本地数据",
       localDataHelp:
-        "摘要、翻译和笔记仅保存在当前 Chrome 个人资料中。你可以随时删除。",
+        "摘要、翻译、笔记和最多 500 条生词仅保存在当前 Chrome 个人资料中。你可以随时删除或导出。",
       clearCache: "清除缓存的摘要",
       deleteNotes: "删除全部笔记",
+      deleteVocabulary: "删除全部生词",
       resetData: "重置扩展数据",
       footer:
         '完整数据流说明请参阅仓库中的 <a href="PRIVACY.md" target="_blank">PRIVACY.md</a>。',
@@ -134,8 +147,9 @@ const YTD_OPTIONS = (() => {
       copyFailed: "无法复制提示词。请选中提示词文本并手动复制。",
       clearedDigests: ({ count }) => `已清除 ${count} 条缓存摘要。`,
       notesDeleted: "已删除全部已保存的笔记。",
+      vocabularyDeleted: "已删除全部已保存的生词。",
       resetConfirm:
-        "要从当前 Chrome 个人资料中删除 API 密钥、缓存摘要、翻译和已保存的笔记吗？",
+        "要从当前 Chrome 个人资料中删除 API 密钥、缓存摘要、翻译、已保存的笔记和生词吗？",
       allDataDeleted: "已删除全部 YouTube Digest 数据。",
       settingsLoadFailed: "无法加载已保存的设置，但你仍可预览此页面。",
     },
@@ -143,6 +157,10 @@ const YTD_OPTIONS = (() => {
 
   function normalizeLanguage(language) {
     return SUPPORTED_LANGUAGES.has(language) ? language : "en";
+  }
+
+  function normalizeTheme(theme) {
+    return SUPPORTED_THEMES.has(theme) ? theme : "system";
   }
 
   function translate(language, key, params = {}) {
@@ -264,12 +282,33 @@ const YTD_OPTIONS = (() => {
     return normalizedLanguage;
   }
 
+  async function readPreferredTheme(storage) {
+    const stored = await storage.get(THEME_STORAGE_KEY);
+    return normalizeTheme(stored[THEME_STORAGE_KEY]);
+  }
+
+  async function persistPreferredTheme(storage, theme) {
+    const normalizedTheme = normalizeTheme(theme);
+    await storage.set({ [THEME_STORAGE_KEY]: normalizedTheme });
+    return normalizedTheme;
+  }
+
   function updateLanguageButtonState(buttons, language) {
     const normalizedLanguage = normalizeLanguage(language);
     for (const button of buttons) {
       button.setAttribute(
         "aria-pressed",
         String(button.dataset.language === normalizedLanguage),
+      );
+    }
+  }
+
+  function updateThemeButtonState(buttons, theme) {
+    const normalizedTheme = normalizeTheme(theme);
+    for (const button of buttons) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.themePref === normalizedTheme),
       );
     }
   }
@@ -358,9 +397,11 @@ const YTD_OPTIONS = (() => {
     const saveStatus = doc.getElementById("saveStatus");
     const dataStatus = doc.getElementById("dataStatus");
     const languageButtons = [...doc.querySelectorAll("[data-language]")];
+    const themeButtons = [...doc.querySelectorAll("[data-theme-pref]")];
     const statusStates = new Map();
     const promptDrafts = createPromptDrafts();
     let currentLanguage = "en";
+    let currentTheme = "system";
 
     function renderStatus(element) {
       const state = statusStates.get(element);
@@ -431,11 +472,34 @@ const YTD_OPTIONS = (() => {
       }
     }
 
+    function resolveThemePreference() {
+      if (currentTheme !== "system") return currentTheme;
+      return typeof root.matchMedia === "function" &&
+        root.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+
+    function applyThemeToDocument() {
+      doc.documentElement.dataset.theme = resolveThemePreference();
+    }
+
+    function applyTheme(theme) {
+      currentTheme = normalizeTheme(theme);
+      applyThemeToDocument();
+      updateThemeButtonState(themeButtons, currentTheme);
+    }
+
     async function loadOptions() {
       try {
         applyLanguage(await readPreferredLanguage(storage));
       } catch (_error) {
         applyLanguage("en");
+      }
+      try {
+        applyTheme(await readPreferredTheme(storage));
+      } catch (_error) {
+        applyTheme("system");
       }
       await loadSettings();
     }
@@ -491,6 +555,11 @@ const YTD_OPTIONS = (() => {
       setStatus(dataStatus, "notesDeleted");
     }
 
+    async function clearVocabulary() {
+      await storage.remove("ytd_vocabulary");
+      setStatus(dataStatus, "vocabularyDeleted");
+    }
+
     async function resetAllData() {
       const confirmed = root.confirm(
         translate(currentLanguage, "resetConfirm"),
@@ -499,6 +568,7 @@ const YTD_OPTIONS = (() => {
 
       await storage.clear();
       await persistPreferredLanguage(storage, currentLanguage);
+      await persistPreferredTheme(storage, currentTheme);
       await loadSettings();
       setStatus(dataStatus, "allDataDeleted");
     }
@@ -512,6 +582,9 @@ const YTD_OPTIONS = (() => {
       .getElementById("clearCacheBtn")
       .addEventListener("click", clearCachedDigests);
     doc.getElementById("clearNotesBtn").addEventListener("click", clearNotes);
+    doc
+      .getElementById("clearVocabBtn")
+      .addEventListener("click", clearVocabulary);
     doc.getElementById("resetBtn").addEventListener("click", resetAllData);
     for (const button of languageButtons) {
       button.addEventListener("click", async () => {
@@ -519,6 +592,20 @@ const YTD_OPTIONS = (() => {
         applyLanguage(language);
         await persistPreferredLanguage(storage, language);
       });
+    }
+    for (const button of themeButtons) {
+      button.addEventListener("click", async () => {
+        const theme = button.dataset.themePref;
+        applyTheme(theme);
+        await persistPreferredTheme(storage, theme);
+      });
+    }
+    if (typeof root.matchMedia === "function") {
+      root
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", () => {
+          if (currentTheme === "system") applyThemeToDocument();
+        });
     }
 
     if (doc.readyState === "loading") {
@@ -531,14 +618,19 @@ const YTD_OPTIONS = (() => {
   return {
     COPY,
     LANGUAGE_STORAGE_KEY,
+    THEME_STORAGE_KEY,
     copyPromptValue,
     createPromptDrafts,
     createStorageAdapter,
     normalizeLanguage,
+    normalizeTheme,
     persistPreferredLanguage,
+    persistPreferredTheme,
     readPreferredLanguage,
+    readPreferredTheme,
     translate,
     updateLanguageButtonState,
+    updateThemeButtonState,
     updateLocalizedPrompt,
     switchPromptDraft,
     initialize,

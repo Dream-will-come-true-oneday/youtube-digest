@@ -316,6 +316,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.channelName,
       message.videoDescription,
       message.videoDuration,
+      message.template,
     )
       .then(sendResponse)
       .catch((err) => sendResponse({ error: err.message }));
@@ -358,6 +359,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "deleteNote") {
     // Delete a specific note
     handleDeleteNote(message.noteId)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "saveVocabulary") {
+    // Save a vocabulary entry (term + explanation at a timestamp)
+    handleSaveVocabulary(message.entry)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "getVocabulary") {
+    // Get all saved vocabulary entries, optionally filtered by video
+    handleGetVocabulary(message.videoId)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "deleteVocabulary") {
+    // Delete a specific vocabulary entry
+    handleDeleteVocabulary(message.entryId)
       .then(sendResponse)
       .catch((err) => sendResponse({ success: false, error: err.message }));
     return true;
@@ -864,6 +889,7 @@ async function handleAnalyzeTranscript(
   channelName,
   videoDescription,
   videoDuration,
+  template = "general",
 ) {
   try {
     const settings = await getSettings();
@@ -892,18 +918,14 @@ async function handleAnalyzeTranscript(
       Math.floor(videoDuration || 0),
       lastTranscriptSeconds,
     );
-    const durationMinutes = Math.floor(effectiveSeconds / 60);
-    const durationSeconds = Math.floor(effectiveSeconds % 60);
-    const durationFormatted = `${durationMinutes}:${String(durationSeconds).padStart(2, "0")}`;
+    const durationFormatted = YTD_SETTINGS.formatTimestamp(effectiveSeconds);
     const maxTimestampSeconds = effectiveSeconds;
 
     // The "last chapter must be after" threshold (75% in) forces the model to
     // cover the WHOLE video instead of front-loading chapters near the start.
     // We do NOT prescribe a chapter count — the model picks the natural splits.
     const lateThresholdSeconds = Math.floor(effectiveSeconds * 0.75);
-    const lateThreshold = `${Math.floor(lateThresholdSeconds / 60)}:${String(
-      lateThresholdSeconds % 60,
-    ).padStart(2, "0")}`;
+    const lateThreshold = YTD_SETTINGS.formatTimestamp(lateThresholdSeconds);
 
     const promptVariables = {
       durationFormatted,
@@ -914,14 +936,29 @@ async function handleAnalyzeTranscript(
       videoDescription: videoDescription || "No description available",
       transcriptText,
     };
+    // Template => heading mapping. "general" keeps the original unprefixed
+    // headings for backward compatibility; others become "Course system prompt".
+    const VALID_TEMPLATES = ["general", "course", "interview", "tutorial"];
+    const normalizedTemplate = VALID_TEMPLATES.includes(template)
+      ? template
+      : "general";
+    const systemHeading =
+      normalizedTemplate === "general"
+        ? "System prompt"
+        : `${normalizedTemplate.charAt(0).toUpperCase() + normalizedTemplate.slice(1)} system prompt`;
+    const userHeading =
+      normalizedTemplate === "general"
+        ? "User prompt"
+        : `${normalizedTemplate.charAt(0).toUpperCase() + normalizedTemplate.slice(1)} user prompt`;
+
     const systemPrompt = await loadPromptSection(
       "analysis.md",
-      "System prompt",
+      systemHeading,
       promptVariables,
     );
     const userPrompt = await loadPromptSection(
       "analysis.md",
-      "User prompt",
+      userHeading,
       promptVariables,
     );
 
@@ -983,12 +1020,7 @@ function validateAndFixTimestamps(analysis, maxSeconds) {
       ? Number(maxSeconds)
       : Number.MAX_SAFE_INTEGER;
 
-  // Helper to format seconds as MM:SS
-  const formatTimestamp = (seconds) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${String(secs).padStart(2, "0")}`;
-  };
+  const formatTimestamp = (seconds) => YTD_SETTINGS.formatTimestamp(seconds);
 
   const safeString = (value, maxLength) =>
     typeof value === "string" ? value.trim().slice(0, maxLength) : "";
@@ -1192,10 +1224,8 @@ async function handleSaveNote(
       videoTitle,
     );
 
-    // Format timestamp as MM:SS
-    const minutes = Math.floor(safeTimestamp / 60);
-    const seconds = safeTimestamp % 60;
-    const formattedTimestamp = `${minutes}:${String(seconds).padStart(2, "0")}`;
+    // Format timestamp for display
+    const formattedTimestamp = YTD_SETTINGS.formatTimestamp(safeTimestamp);
 
     // Create timestamped URL
     const timestampedUrl = `${canonicalVideoUrl}&t=${safeTimestamp}s`;
@@ -1354,6 +1384,124 @@ async function handleDeleteNote(noteId) {
     let notes = result.ytd_notes || [];
     notes = notes.filter((n) => n.id !== noteId);
     await chrome.storage.local.set({ ytd_notes: notes });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+// ============================================================
+// VOCABULARY — word/phrase entries with explanations
+// ============================================================
+
+function createVocabularyId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `vocab_${uuid}`;
+  return `vocab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Saves a vocabulary entry to chrome.storage.local. Entries come from the
+ * Explain modal, so every one carries an AI explanation and a timestamp.
+ * Keeps only the latest 500 entries.
+ *
+ * @param {Object} entry - { term, explanation, videoId, videoTitle,
+ *                          channelName, timestampSeconds }
+ * @returns {Object} - { success, entry } or { success: false, error }
+ */
+async function handleSaveVocabulary(entry) {
+  try {
+    const term =
+      typeof entry?.term === "string" ? entry.term.trim().slice(0, 300) : "";
+    if (!term) {
+      return { success: false, error: "Vocabulary term is empty" };
+    }
+    const videoId =
+      typeof entry?.videoId === "string" ? entry.videoId.trim() : "";
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) {
+      return { success: false, error: "Invalid video ID" };
+    }
+
+    const timestampNumber = Number(entry?.timestampSeconds);
+    const safeTimestamp =
+      Number.isFinite(timestampNumber) && timestampNumber > 0
+        ? Math.floor(timestampNumber)
+        : 0;
+    const canonicalVideoUrl = YTD_SETTINGS.canonicalYouTubeUrl(videoId);
+
+    const vocabEntry = {
+      id: createVocabularyId(),
+      term,
+      explanation:
+        typeof entry?.explanation === "string"
+          ? entry.explanation.trim().slice(0, 5000)
+          : "",
+      videoId,
+      videoTitle:
+        typeof entry?.videoTitle === "string"
+          ? entry.videoTitle.slice(0, 500)
+          : "Untitled Video",
+      channelName:
+        typeof entry?.channelName === "string"
+          ? entry.channelName.slice(0, 300)
+          : "",
+      timestamp: YTD_SETTINGS.formatTimestamp(safeTimestamp),
+      timestampSeconds: safeTimestamp,
+      timestampedUrl: `${canonicalVideoUrl}&t=${safeTimestamp}s`,
+      createdAt: Date.now(),
+    };
+
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    const vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+    const updatedVocabulary = [vocabEntry, ...vocabulary].slice(0, 500);
+
+    await chrome.storage.local.set({ ytd_vocabulary: updatedVocabulary });
+    return { success: true, entry: vocabEntry };
+  } catch (error) {
+    console.error("[YouTube Digest] Save vocabulary error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Gets vocabulary entries from storage, optionally filtered by video ID.
+ */
+async function handleGetVocabulary(videoId) {
+  try {
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    let vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+
+    if (videoId) {
+      vocabulary = vocabulary.filter((item) => item.videoId === videoId);
+    }
+
+    return { success: true, vocabulary };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Deletes a vocabulary entry by ID.
+ */
+async function handleDeleteVocabulary(entryId) {
+  try {
+    const normalizedEntryId =
+      typeof entryId === "string" ? entryId.trim() : "";
+    if (!normalizedEntryId) {
+      return { success: false, error: "Invalid vocabulary entry ID" };
+    }
+
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    let vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+    vocabulary = vocabulary.filter((item) => item?.id !== normalizedEntryId);
+    await chrome.storage.local.set({ ytd_vocabulary: vocabulary });
     return { success: true };
   } catch (error) {
     return { success: false, error: error.message };
@@ -1635,4 +1783,11 @@ globalThis.__YTD_TRANSLATION_TESTING__ = {
   validateTranscriptBatchRequest,
   normalizeTranslatedSegmentBatch,
   handleTranslateContent,
+};
+
+// Vocabulary handlers are exported the same way for the Node tests.
+globalThis.__YTD_VOCABULARY_TESTING__ = {
+  handleSaveVocabulary,
+  handleGetVocabulary,
+  handleDeleteVocabulary,
 };

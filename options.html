@@ -11,28 +11,64 @@
       <header>
         <div class="settings-heading-row">
           <div class="eyebrow">YouTube Digest</div>
-          <div
-            class="language-switch"
-            role="group"
-            aria-label="Interface language"
-            data-i18n-aria-label="languageGroupLabel"
-          >
-            <button
-              class="language-option"
-              type="button"
-              data-language="en"
-              aria-pressed="true"
+          <div class="header-controls">
+            <div
+              class="language-switch"
+              role="group"
+              aria-label="Interface language"
+              data-i18n-aria-label="languageGroupLabel"
             >
-              English
-            </button>
-            <button
-              class="language-option"
-              type="button"
-              data-language="zh-CN"
-              aria-pressed="false"
+              <button
+                class="language-option"
+                type="button"
+                data-language="en"
+                aria-pressed="true"
+              >
+                English
+              </button>
+              <button
+                class="language-option"
+                type="button"
+                data-language="zh-CN"
+                aria-pressed="false"
+              >
+                中文
+              </button>
+            </div>
+            <div
+              class="language-switch theme-switch"
+              role="group"
+              aria-label="Theme"
+              data-i18n-aria-label="themeGroupLabel"
             >
-              中文
-            </button>
+              <button
+                class="language-option"
+                type="button"
+                data-theme-pref="light"
+                data-i18n="themeLight"
+                aria-pressed="false"
+              >
+                Light
+              </button>
+              <button
+                class="language-option"
+                type="button"
+                data-theme-pref="dark"
+                data-i18n="themeDark"
+                aria-pressed="false"
+              >
+                Dark
+              </button>
+              <button
+                class="language-option"
+                type="button"
+                data-theme-pref="system"
+                data-i18n="themeSystem"
+                aria-pressed="true"
+              >
+                System
+              </button>
+            </div>
           </div>
         </div>
         <h1 data-i18n="heading">Bring your own API keys</h1>
@@ -202,6 +238,9 @@
           </button>
           <button id="clearNotesBtn" type="button" data-i18n="deleteNotes">
             Delete all notes
+          </button>
+          <button id="clearVocabBtn" type="button" data-i18n="deleteVocabulary">
+            Delete all vocabulary
           </button>
           <button
             id="resetBtn"
