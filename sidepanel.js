@@ -85,6 +85,68 @@ let autoScrollEnabled = true; // True = scroll transcript to follow video playba
 let autoScrollInterval = null; // setInterval ID for polling video time
 let lastAutoScrollTime = 0; // Timestamp of last programmatic scroll (ignores scroll events within 1s)
 
+// --- Theme state ---
+// Preference lives under ytd_options_theme ("light" | "dark" | "system"),
+// shared with the Settings page. The header button cycles light/dark only;
+// "system" is only selectable from Settings.
+const THEME_STORAGE_KEY = "ytd_options_theme";
+let themePreference = "system";
+let themeMediaQuery = null;
+
+function resolveThemePreference() {
+  if (themePreference === "light" || themePreference === "dark") {
+    return themePreference;
+  }
+  return themeMediaQuery && themeMediaQuery.matches ? "dark" : "light";
+}
+
+function applyResolvedTheme() {
+  const resolved = resolveThemePreference();
+  document.documentElement.dataset.theme = resolved;
+  const toggleBtn = document.getElementById("themeToggleBtn");
+  if (toggleBtn) {
+    const label =
+      resolved === "dark" ? "Switch to light mode" : "Switch to dark mode";
+    toggleBtn.textContent = resolved === "dark" ? "☀" : "☾";
+    toggleBtn.title = label;
+    toggleBtn.setAttribute("aria-label", label);
+  }
+}
+
+async function initTheme() {
+  try {
+    const stored = await chrome.storage.local.get(THEME_STORAGE_KEY);
+    const value = stored[THEME_STORAGE_KEY];
+    if (value === "light" || value === "dark" || value === "system") {
+      themePreference = value;
+    }
+  } catch (e) {
+    // Storage unavailable — keep the "system" default.
+  }
+
+  if (typeof window.matchMedia === "function") {
+    themeMediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    themeMediaQuery.addEventListener("change", () => {
+      if (themePreference === "system") applyResolvedTheme();
+    });
+  }
+  applyResolvedTheme();
+
+  document
+    .getElementById("themeToggleBtn")
+    ?.addEventListener("click", async () => {
+      themePreference = resolveThemePreference() === "dark" ? "light" : "dark";
+      applyResolvedTheme();
+      try {
+        await chrome.storage.local.set({
+          [THEME_STORAGE_KEY]: themePreference,
+        });
+      } catch (e) {
+        // Preference stays for this panel session even if persisting fails.
+      }
+    });
+}
+
 // ============================================================
 // TRANSCRIPT GROUPING
 // ============================================================
@@ -230,6 +292,7 @@ function groupTranscriptEntries(entries, limits = TRANSCRIPT_SEGMENT_LIMITS) {
 // ============================================================
 
 document.addEventListener("DOMContentLoaded", async () => {
+  initTheme();
   setupEventListeners();
   await evictOldCacheEntries(20);
 

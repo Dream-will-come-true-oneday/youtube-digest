@@ -1,12 +1,18 @@
 const YTD_OPTIONS = (() => {
   const LANGUAGE_STORAGE_KEY = "ytd_options_language";
+  const THEME_STORAGE_KEY = "ytd_options_theme";
   const PREVIEW_STORAGE_PREFIX = "youtubeDigestPreview:";
   const SUPPORTED_LANGUAGES = new Set(["en", "zh-CN"]);
+  const SUPPORTED_THEMES = new Set(["light", "dark", "system"]);
 
   const COPY = {
     en: {
       pageTitle: "YouTube Digest Settings",
       languageGroupLabel: "Interface language",
+      themeGroupLabel: "Theme",
+      themeLight: "Light",
+      themeDark: "Dark",
+      themeSystem: "System",
       heading: "Bring your own API keys",
       lede:
         "Keys stay in this Chrome profile and are sent only to Supadata and DeepSeek. This open-source extension has no developer server or analytics.",
@@ -77,6 +83,10 @@ const YTD_OPTIONS = (() => {
     "zh-CN": {
       pageTitle: "YouTube Digest 设置",
       languageGroupLabel: "界面语言",
+      themeGroupLabel: "主题",
+      themeLight: "亮色",
+      themeDark: "暗色",
+      themeSystem: "跟随系统",
       heading: "使用你自己的 API 密钥",
       lede:
         "密钥仅保存在当前 Chrome 个人资料中，只会发送给 Supadata 和 DeepSeek。本开源扩展没有开发者服务器，也不使用分析服务。",
@@ -143,6 +153,10 @@ const YTD_OPTIONS = (() => {
 
   function normalizeLanguage(language) {
     return SUPPORTED_LANGUAGES.has(language) ? language : "en";
+  }
+
+  function normalizeTheme(theme) {
+    return SUPPORTED_THEMES.has(theme) ? theme : "system";
   }
 
   function translate(language, key, params = {}) {
@@ -264,12 +278,33 @@ const YTD_OPTIONS = (() => {
     return normalizedLanguage;
   }
 
+  async function readPreferredTheme(storage) {
+    const stored = await storage.get(THEME_STORAGE_KEY);
+    return normalizeTheme(stored[THEME_STORAGE_KEY]);
+  }
+
+  async function persistPreferredTheme(storage, theme) {
+    const normalizedTheme = normalizeTheme(theme);
+    await storage.set({ [THEME_STORAGE_KEY]: normalizedTheme });
+    return normalizedTheme;
+  }
+
   function updateLanguageButtonState(buttons, language) {
     const normalizedLanguage = normalizeLanguage(language);
     for (const button of buttons) {
       button.setAttribute(
         "aria-pressed",
         String(button.dataset.language === normalizedLanguage),
+      );
+    }
+  }
+
+  function updateThemeButtonState(buttons, theme) {
+    const normalizedTheme = normalizeTheme(theme);
+    for (const button of buttons) {
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.themePref === normalizedTheme),
       );
     }
   }
@@ -358,9 +393,11 @@ const YTD_OPTIONS = (() => {
     const saveStatus = doc.getElementById("saveStatus");
     const dataStatus = doc.getElementById("dataStatus");
     const languageButtons = [...doc.querySelectorAll("[data-language]")];
+    const themeButtons = [...doc.querySelectorAll("[data-theme-pref]")];
     const statusStates = new Map();
     const promptDrafts = createPromptDrafts();
     let currentLanguage = "en";
+    let currentTheme = "system";
 
     function renderStatus(element) {
       const state = statusStates.get(element);
@@ -431,11 +468,34 @@ const YTD_OPTIONS = (() => {
       }
     }
 
+    function resolveThemePreference() {
+      if (currentTheme !== "system") return currentTheme;
+      return typeof root.matchMedia === "function" &&
+        root.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
+    }
+
+    function applyThemeToDocument() {
+      doc.documentElement.dataset.theme = resolveThemePreference();
+    }
+
+    function applyTheme(theme) {
+      currentTheme = normalizeTheme(theme);
+      applyThemeToDocument();
+      updateThemeButtonState(themeButtons, currentTheme);
+    }
+
     async function loadOptions() {
       try {
         applyLanguage(await readPreferredLanguage(storage));
       } catch (_error) {
         applyLanguage("en");
+      }
+      try {
+        applyTheme(await readPreferredTheme(storage));
+      } catch (_error) {
+        applyTheme("system");
       }
       await loadSettings();
     }
@@ -499,6 +559,7 @@ const YTD_OPTIONS = (() => {
 
       await storage.clear();
       await persistPreferredLanguage(storage, currentLanguage);
+      await persistPreferredTheme(storage, currentTheme);
       await loadSettings();
       setStatus(dataStatus, "allDataDeleted");
     }
@@ -520,6 +581,20 @@ const YTD_OPTIONS = (() => {
         await persistPreferredLanguage(storage, language);
       });
     }
+    for (const button of themeButtons) {
+      button.addEventListener("click", async () => {
+        const theme = button.dataset.themePref;
+        applyTheme(theme);
+        await persistPreferredTheme(storage, theme);
+      });
+    }
+    if (typeof root.matchMedia === "function") {
+      root
+        .matchMedia("(prefers-color-scheme: dark)")
+        .addEventListener("change", () => {
+          if (currentTheme === "system") applyThemeToDocument();
+        });
+    }
 
     if (doc.readyState === "loading") {
       doc.addEventListener("DOMContentLoaded", loadOptions, { once: true });
@@ -531,14 +606,19 @@ const YTD_OPTIONS = (() => {
   return {
     COPY,
     LANGUAGE_STORAGE_KEY,
+    THEME_STORAGE_KEY,
     copyPromptValue,
     createPromptDrafts,
     createStorageAdapter,
     normalizeLanguage,
+    normalizeTheme,
     persistPreferredLanguage,
+    persistPreferredTheme,
     readPreferredLanguage,
+    readPreferredTheme,
     translate,
     updateLanguageButtonState,
+    updateThemeButtonState,
     updateLocalizedPrompt,
     switchPromptDraft,
     initialize,

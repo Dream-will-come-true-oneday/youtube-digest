@@ -57,6 +57,36 @@
 }
 
 /* ============================================================
+   DARK THEME — same tokens over warm charcoal surfaces.
+   Applied by setting data-theme="dark" on <html> from the stored
+   theme preference; "system" resolves via prefers-color-scheme.
+   ============================================================ */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #1c1a17;
+  --surface: #24211d;
+  --surface-raised: #2c2823;
+  --border: #3a352e;
+  --border-heavy: #4a443b;
+  --text: #e8e2d6;
+  --text-secondary: #b3a996;
+  --text-muted: #7d7466;
+
+  --accent: #d97e63;
+  --accent-hover: #e08d74;
+  --accent-dim: rgba(217, 126, 99, 0.16);
+  --sage: #8fa07f;
+  --sage-dim: rgba(143, 160, 127, 0.16);
+  --success: #8fa07f;
+  --highlight: #e0a96b;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.28);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.55);
+}
+
+/* ============================================================
    RESET & BASE
    ============================================================ */
 * {
@@ -125,6 +155,35 @@ body {
 .header-top .video-info {
   min-width: 0;
   flex: 1;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.theme-toggle-btn {
+  flex-shrink: 0;
+  width: 30px;
+  height: 27px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: border-color 0.18s ease, color 0.18s ease,
+    background 0.18s ease;
+}
+
+.theme-toggle-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
 }
 
 .settings-btn {
@@ -1072,6 +1131,11 @@ body {
   justify-content: center;
   padding: 20px;
   animation: fadeIn 0.2s ease;
+}
+
+/* A warm-grey scrim goes muddy over dark surfaces; use a plain black one. */
+[data-theme="dark"] .explain-modal-overlay {
+  background: rgba(0, 0, 0, 0.62);
 }
 
 .explain-modal {
