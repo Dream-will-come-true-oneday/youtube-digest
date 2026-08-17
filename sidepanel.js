@@ -147,6 +147,164 @@ async function initTheme() {
     });
 }
 
+// --- Transcript search state ---
+let transcriptSearchQuery = "";
+let transcriptSearchMatches = [];
+let transcriptSearchCursor = -1;
+let transcriptSearchDebounceTimer = null;
+
+// ============================================================
+// TRANSCRIPT SEARCH — highlight + jump between matching lines
+// ============================================================
+
+/**
+ * Wraps every case-insensitive occurrence of the query inside a text node
+ * with <mark class="search-hit">. Returns true when at least one hit was
+ * wrapped. Works on raw text nodes so subtitle inline markup survives.
+ */
+function wrapMatchesInTextNode(textNode, query) {
+  const text = textNode.textContent;
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  let index = lowerText.indexOf(lowerQuery);
+  if (index === -1) return false;
+
+  const fragment = document.createDocumentFragment();
+  let cursor = 0;
+  while (index !== -1) {
+    fragment.appendChild(document.createTextNode(text.slice(cursor, index)));
+    const mark = document.createElement("mark");
+    mark.className = "search-hit";
+    mark.textContent = text.slice(index, index + query.length);
+    fragment.appendChild(mark);
+    cursor = index + query.length;
+    index = lowerText.indexOf(lowerQuery, cursor);
+  }
+  fragment.appendChild(document.createTextNode(text.slice(cursor)));
+  textNode.parentNode.replaceChild(fragment, textNode);
+  return true;
+}
+
+/**
+ * Removes all search marks and match classes. Safe to call when rows were
+ * re-rendered (innerHTML="") and the marks are already gone.
+ */
+function clearTranscriptSearchHighlights() {
+  document
+    .querySelectorAll("#transcriptList .search-hit")
+    .forEach((mark) => {
+      const parent = mark.parentNode;
+      parent.replaceChild(document.createTextNode(mark.textContent), mark);
+      parent.normalize();
+    });
+  document
+    .querySelectorAll("#transcriptList .search-match, #transcriptList .search-match-current")
+    .forEach((row) =>
+      row.classList.remove("search-match", "search-match-current"),
+    );
+  transcriptSearchMatches = [];
+  transcriptSearchCursor = -1;
+}
+
+/**
+ * Re-applies the active query over the rendered transcript rows. Called on
+ * input (debounced), mode switches, and translation row updates. When
+ * scroll=false the current match is not scrolled back into view.
+ */
+function applyTranscriptSearch(scroll = true) {
+  clearTranscriptSearchHighlights();
+  const countEl = document.getElementById("searchMatchCount");
+  const rawQuery = transcriptSearchQuery.trim();
+  const query = rawQuery.toLowerCase();
+
+  if (query.length < 2) {
+    if (countEl) countEl.textContent = "";
+    return;
+  }
+
+  const rows = document.querySelectorAll(
+    "#transcriptList .transcript-entry",
+  );
+  rows.forEach((row) => {
+    const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
+    let node;
+    let matched = false;
+    while ((node = walker.nextNode())) {
+      if (wrapMatchesInTextNode(node, query)) matched = true;
+    }
+    if (matched) {
+      row.classList.add("search-match");
+      transcriptSearchMatches.push(row);
+    }
+  });
+
+  if (countEl) {
+    countEl.textContent = transcriptSearchMatches.length
+      ? `1/${transcriptSearchMatches.length} lines`
+      : "No matches";
+  }
+  if (transcriptSearchMatches.length) {
+    setActiveSearchMatch(0, scroll);
+  }
+}
+
+/**
+ * Moves the emphasized "current" match (Enter / Shift+Enter in the search
+ * box) and reports position in the counter. Wraps around at both ends.
+ */
+function setActiveSearchMatch(index, scroll = true) {
+  if (!transcriptSearchMatches.length) return;
+  transcriptSearchMatches.forEach((row) =>
+    row.classList.remove("search-match-current"),
+  );
+  const total = transcriptSearchMatches.length;
+  transcriptSearchCursor =
+    ((index % total) + total) % total;
+  const row = transcriptSearchMatches[transcriptSearchCursor];
+  row.classList.add("search-match-current");
+  if (scroll) {
+    row.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  const countEl = document.getElementById("searchMatchCount");
+  if (countEl) {
+    countEl.textContent = `${transcriptSearchCursor + 1}/${total} lines`;
+  }
+}
+
+function updateTranscriptSearchInputValue() {
+  const input = document.getElementById("transcriptSearchInput");
+  if (input && input.value !== transcriptSearchQuery) {
+    input.value = transcriptSearchQuery;
+  }
+}
+
+function setupTranscriptSearch() {
+  const input = document.getElementById("transcriptSearchInput");
+  if (!input) return;
+
+  input.addEventListener("input", () => {
+    clearTimeout(transcriptSearchDebounceTimer);
+    transcriptSearchDebounceTimer = setTimeout(() => {
+      transcriptSearchQuery = input.value;
+      applyTranscriptSearch(false);
+    }, 200);
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (!transcriptSearchMatches.length) return;
+      const step = event.shiftKey ? -1 : 1;
+      setActiveSearchMatch(transcriptSearchCursor + step);
+    } else if (event.key === "Escape") {
+      input.value = "";
+      transcriptSearchQuery = "";
+      applyTranscriptSearch(false);
+      input.blur();
+    }
+  });
+}
+
 // ============================================================
 // TRANSCRIPT GROUPING
 // ============================================================
@@ -471,6 +629,8 @@ function setupEventListeners() {
     setNotesFilter(true);
     loadNotes(null); // Load all notes
   });
+
+  setupTranscriptSearch();
 }
 
 function setNotesFilter(showAll) {
@@ -925,6 +1085,9 @@ function renderTranscript() {
     );
     transcriptList.appendChild(div);
   });
+
+  // Re-apply any active search query over the freshly rendered rows.
+  if (transcriptSearchQuery) applyTranscriptSearch(false);
 
   // Start tracking video playback for auto-scroll
   startPlaybackTracking();
@@ -1922,6 +2085,9 @@ function renderTranscriptModeRows(segments, mode) {
     rows.push(div);
   });
 
+  // Re-apply any active search query over the freshly rendered rows.
+  if (transcriptSearchQuery) applyTranscriptSearch(false);
+
   startPlaybackTracking();
   return rows;
 }
@@ -2036,6 +2202,8 @@ async function requestTranscriptTranslationBatch(
         generation,
       );
     });
+    // Translation text replaces row content, which drops search marks.
+    if (transcriptSearchQuery) applyTranscriptSearch(false);
     await updateCache();
   } catch (error) {
     if (generation !== translationGeneration) return;

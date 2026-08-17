@@ -642,6 +642,60 @@ body {
    TRANSCRIPT TAB
    ============================================================ */
 
+/* Search box above the transcript list */
+.transcript-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.transcript-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--text);
+  font: 500 12.5px/1.4 var(--font-body);
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.transcript-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.transcript-search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.transcript-search input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.search-match-count {
+  flex-shrink: 0;
+  min-width: 72px;
+  text-align: right;
+  font: 600 11px/1.2 var(--font-body);
+  color: var(--text-muted);
+}
+
+.search-hit {
+  background: var(--highlight);
+  color: #2e2a24;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
+.transcript-entry.search-match-current {
+  background: var(--accent-dim);
+}
+
 /* Small badge showing where the transcript came from */
 .transcript-source-badge {
   display: flex;
@@ -682,6 +736,8 @@ body {
   display: flex;
   gap: 12px;
   padding: 11px 10px;
+  /* Reserve the active-playback accent bar so enabling it never shifts layout */
+  border-left: 3px solid transparent;
   border-radius: var(--r-sm);
   margin-bottom: 2px;
   transition: background 0.14s ease;
@@ -837,6 +893,13 @@ body {
 .transcript-entry.active-playback .transcript-time {
   color: var(--accent);
   font-weight: 600;
+}
+
+.transcript-entry.active-playback .transcript-text,
+.transcript-entry.active-playback .transcript-original,
+.transcript-entry.active-playback .transcript-translation {
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* Follow playback button — floating pill */
