@@ -25,6 +25,7 @@ let currentVideoTitle = "";
 let currentChannelName = "";
 let currentVideoDescription = "";
 let currentVideoDuration = 0;
+let currentAnalysisTemplate = "general"; // Last template used for analysis
 let isAnalysisLoading = false; // Track if analysis is in progress
 let youtubeTabId = null; // Store the YouTube tab ID for reliable messaging
 let errorAction = null;
@@ -771,6 +772,12 @@ async function startDigest(videoId, videoUrl) {
     currentVideoId = videoId;
     currentVideoUrl = videoUrl;
     currentAnalysis = cached.analysis || null;
+    currentAnalysisTemplate = cached.analysisTemplate || "general";
+
+    // Sync the template selector to what was cached.
+    const templateSelect = document.getElementById("analysisTemplateSelect");
+    if (templateSelect) templateSelect.value = currentAnalysisTemplate;
+
     currentTranscript = cached.transcript;
     currentTranscriptText = cached.transcriptText;
     currentTranscriptTimestamped = cached.transcriptTimestamped;
@@ -1196,9 +1203,17 @@ function switchTab(tabName) {
     stopPlaybackTracking();
   }
 
-  // Lazy-load LLM analysis when user switches to Overview tab
-  if (tabName === "overview" && !currentAnalysis && !isAnalysisLoading) {
-    triggerAnalysis();
+  // Lazy-load LLM analysis when user switches to Overview tab.
+  // Re-analyse if the user changed the template since the last run.
+  if (tabName === "overview") {
+    const templateSelect = document.getElementById("analysisTemplateSelect");
+    const selectedTemplate = templateSelect?.value || "general";
+    if (
+      (!currentAnalysis && !isAnalysisLoading) ||
+      (currentAnalysis && currentAnalysisTemplate !== selectedTemplate)
+    ) {
+      triggerAnalysis();
+    }
   }
 }
 
@@ -1207,8 +1222,17 @@ function switchTab(tabName) {
  * This saves tokens by not running analysis until needed.
  */
 async function triggerAnalysis() {
-  if (!currentTranscriptTimestamped || isAnalysisLoading || currentAnalysis)
-    return;
+  if (!currentTranscriptTimestamped || isAnalysisLoading) return;
+
+  const templateSelect = document.getElementById("analysisTemplateSelect");
+  const selectedTemplate = templateSelect?.value || "general";
+
+  // If the user changed the template, discard the stale analysis.
+  if (currentAnalysis && currentAnalysisTemplate !== selectedTemplate) {
+    currentAnalysis = null;
+  }
+
+  if (currentAnalysis) return;
 
   isAnalysisLoading = true;
 
@@ -1231,6 +1255,7 @@ async function triggerAnalysis() {
       channelName: currentChannelName,
       videoDescription: currentVideoDescription,
       videoDuration: currentVideoDuration,
+      template: selectedTemplate,
     });
 
     if (!analysisResult.success) {
@@ -1241,6 +1266,7 @@ async function triggerAnalysis() {
     }
 
     currentAnalysis = analysisResult.analysis;
+    currentAnalysisTemplate = selectedTemplate;
     renderAnalysisResults(currentAnalysis);
     highlightMomentsOnPage(currentAnalysis.keyMoments);
 
@@ -1576,6 +1602,7 @@ async function saveToCache(videoId) {
 
     const cacheData = {
       analysis: currentAnalysis, // May be null if not yet analyzed
+      analysisTemplate: currentAnalysisTemplate,
       transcript: currentTranscript,
       transcriptText: currentTranscriptText,
       transcriptTimestamped: currentTranscriptTimestamped,

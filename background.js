@@ -316,6 +316,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       message.channelName,
       message.videoDescription,
       message.videoDuration,
+      message.template,
     )
       .then(sendResponse)
       .catch((err) => sendResponse({ error: err.message }));
@@ -864,6 +865,7 @@ async function handleAnalyzeTranscript(
   channelName,
   videoDescription,
   videoDuration,
+  template = "general",
 ) {
   try {
     const settings = await getSettings();
@@ -910,14 +912,29 @@ async function handleAnalyzeTranscript(
       videoDescription: videoDescription || "No description available",
       transcriptText,
     };
+    // Template => heading mapping. "general" keeps the original unprefixed
+    // headings for backward compatibility; others become "Course system prompt".
+    const VALID_TEMPLATES = ["general", "course", "interview", "tutorial"];
+    const normalizedTemplate = VALID_TEMPLATES.includes(template)
+      ? template
+      : "general";
+    const systemHeading =
+      normalizedTemplate === "general"
+        ? "System prompt"
+        : `${normalizedTemplate.charAt(0).toUpperCase() + normalizedTemplate.slice(1)} system prompt`;
+    const userHeading =
+      normalizedTemplate === "general"
+        ? "User prompt"
+        : `${normalizedTemplate.charAt(0).toUpperCase() + normalizedTemplate.slice(1)} user prompt`;
+
     const systemPrompt = await loadPromptSection(
       "analysis.md",
-      "System prompt",
+      systemHeading,
       promptVariables,
     );
     const userPrompt = await loadPromptSection(
       "analysis.md",
-      "User prompt",
+      userHeading,
       promptVariables,
     );
 

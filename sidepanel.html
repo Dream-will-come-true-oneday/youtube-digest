@@ -152,6 +152,18 @@
 
         <!-- TAB: Overview (chapters + key quotes) - requires LLM -->
         <div class="tab-panel" data-panel="overview">
+          <!-- Template selector -->
+          <div class="section">
+            <div class="template-select-row">
+              <label for="analysisTemplateSelect" class="template-label">Summary style</label>
+              <select id="analysisTemplateSelect" class="template-select">
+                <option value="general">General</option>
+                <option value="course">Course</option>
+                <option value="interview">Interview</option>
+                <option value="tutorial">Tutorial</option>
+              </select>
+            </div>
+          </div>
           <!-- Chapters -->
           <div class="section">
             <div class="section-title">Chapters</div>
