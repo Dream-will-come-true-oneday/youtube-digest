@@ -40,10 +40,49 @@
       </div>
 
       <!-- Tab navigation -->
-      <div class="tabs" id="tabsNav" style="display: none">
-        <button class="tab active" data-tab="transcript">Transcript</button>
-        <button class="tab" data-tab="overview">Overview</button>
-        <button class="tab" data-tab="notes">Notes</button>
+      <div
+        class="tabs"
+        id="tabsNav"
+        role="tablist"
+        aria-label="Digest sections"
+        style="display: none"
+      >
+        <button
+          class="tab active"
+          id="transcriptTab"
+          type="button"
+          role="tab"
+          aria-selected="true"
+          aria-controls="transcriptPanel"
+          data-tab="transcript"
+        >Transcript</button>
+        <button
+          class="tab"
+          id="overviewTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="overviewPanel"
+          data-tab="overview"
+        >Overview</button>
+        <button
+          class="tab"
+          id="notesTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="notesPanel"
+          data-tab="notes"
+        >Notes</button>
+        <button
+          class="tab"
+          id="vocabularyTab"
+          type="button"
+          role="tab"
+          aria-selected="false"
+          aria-controls="vocabularyPanel"
+          data-tab="vocabulary"
+        >Vocabulary</button>
       </div>
     </div>
 
@@ -78,14 +117,21 @@
           <div class="error-message" id="errorMessage">
             Something went wrong.
           </div>
-          <button class="error-btn" id="errorBtn">Try Again</button>
+          <button class="error-btn" id="errorBtn" type="button">Try Again</button>
         </div>
       </div>
 
       <!-- RESULTS -->
       <div id="resultsState" style="display: none">
         <!-- TAB: Transcript (default - no LLM required) -->
-        <div class="tab-panel active" data-panel="transcript">
+        <div
+          class="tab-panel active"
+          id="transcriptPanel"
+          role="tabpanel"
+          aria-labelledby="transcriptTab"
+          aria-hidden="false"
+          data-panel="transcript"
+        >
           <div class="section">
             <div class="section-header transcript-section-header">
               <div class="transcript-header-main">
@@ -124,8 +170,8 @@
                 </div>
               </div>
               <div class="transcript-actions">
-                <button class="enhance-btn" id="copyTranscriptBtn">Copy</button>
-                <button class="enhance-btn" id="exportTranscriptBtn">
+                <button class="enhance-btn" id="copyTranscriptBtn" type="button">Copy</button>
+                <button class="enhance-btn" id="exportTranscriptBtn" type="button">
                   Export
                 </button>
               </div>
@@ -151,7 +197,14 @@
         </div>
 
         <!-- TAB: Overview (chapters + key quotes) - requires LLM -->
-        <div class="tab-panel" data-panel="overview">
+        <div
+          class="tab-panel"
+          id="overviewPanel"
+          role="tabpanel"
+          aria-labelledby="overviewTab"
+          aria-hidden="true"
+          data-panel="overview"
+        >
           <!-- Template selector -->
           <div class="section">
             <div class="template-select-row">
@@ -202,7 +255,14 @@
         </div>
 
         <!-- TAB: Notes -->
-        <div class="tab-panel" data-panel="notes">
+        <div
+          class="tab-panel"
+          id="notesPanel"
+          role="tabpanel"
+          aria-labelledby="notesTab"
+          aria-hidden="true"
+          data-panel="notes"
+        >
           <div class="section">
             <div class="section-header">
               <div class="section-title">Saved Notes</div>
@@ -210,6 +270,7 @@
                 <button
                   class="enhance-btn active"
                   id="notesFilterThis"
+                  type="button"
                   aria-pressed="true"
                 >
                   This Video
@@ -217,18 +278,85 @@
                 <button
                   class="enhance-btn"
                   id="notesFilterAll"
+                  type="button"
                   aria-pressed="false"
                 >
                   All Notes
                 </button>
               </div>
             </div>
+            <div class="notes-export">
+              <button class="enhance-btn" id="exportNotesMdBtn" type="button">
+                Export MD
+              </button>
+              <button class="enhance-btn" id="exportNotesCsvBtn" type="button">
+                Export CSV
+              </button>
+            </div>
+            <p
+              class="export-status"
+              id="notesExportStatus"
+              role="status"
+              aria-live="polite"
+            ></p>
             <p class="notes-intro" id="notesIntro">
               Move your mouse over the video and click the 📝 Note button to
               save timestamped notes, or press the "n" key while the video is
               focused.
             </p>
             <div id="notesList"></div>
+          </div>
+        </div>
+
+        <!-- TAB: Vocabulary -->
+        <div
+          class="tab-panel"
+          id="vocabularyPanel"
+          role="tabpanel"
+          aria-labelledby="vocabularyTab"
+          aria-hidden="true"
+          data-panel="vocabulary"
+        >
+          <div class="section">
+            <div class="section-header">
+              <div class="section-title">Vocabulary</div>
+              <div class="notes-filter">
+                <button
+                  class="enhance-btn active"
+                  id="vocabFilterThis"
+                  type="button"
+                  aria-pressed="true"
+                >
+                  This Video
+                </button>
+                <button
+                  class="enhance-btn"
+                  id="vocabFilterAll"
+                  type="button"
+                  aria-pressed="false"
+                >
+                  All Words
+                </button>
+              </div>
+            </div>
+            <div class="notes-export">
+              <button class="enhance-btn" id="exportVocabMdBtn" type="button">
+                Export MD
+              </button>
+              <button class="enhance-btn" id="exportVocabCsvBtn" type="button">
+                Export CSV
+              </button>
+            </div>
+            <p
+              class="export-status"
+              id="vocabExportStatus"
+              role="status"
+              aria-live="polite"
+            ></p>
+            <p class="notes-intro" id="vocabIntro">
+              No vocabulary saved yet.
+            </p>
+            <div id="vocabList"></div>
           </div>
         </div>
       </div>
@@ -238,6 +366,7 @@
     <button
       class="follow-playback-btn"
       id="followPlaybackBtn"
+      type="button"
       style="display: none"
     >
       Follow playback

@@ -364,6 +364,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message.action === "saveVocabulary") {
+    // Save a vocabulary entry (term + explanation at a timestamp)
+    handleSaveVocabulary(message.entry)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "getVocabulary") {
+    // Get all saved vocabulary entries, optionally filtered by video
+    handleGetVocabulary(message.videoId)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === "deleteVocabulary") {
+    // Delete a specific vocabulary entry
+    handleDeleteVocabulary(message.entryId)
+      .then(sendResponse)
+      .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (message.action === "getVideoInfo") {
     handleGetVideoInfo(message.tabId)
       .then(sendResponse)
@@ -1366,6 +1390,124 @@ async function handleDeleteNote(noteId) {
   }
 }
 
+// ============================================================
+// VOCABULARY — word/phrase entries with explanations
+// ============================================================
+
+function createVocabularyId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `vocab_${uuid}`;
+  return `vocab_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/**
+ * Saves a vocabulary entry to chrome.storage.local. Entries come from the
+ * Explain modal, so every one carries an AI explanation and a timestamp.
+ * Keeps only the latest 500 entries.
+ *
+ * @param {Object} entry - { term, explanation, videoId, videoTitle,
+ *                          channelName, timestampSeconds }
+ * @returns {Object} - { success, entry } or { success: false, error }
+ */
+async function handleSaveVocabulary(entry) {
+  try {
+    const term =
+      typeof entry?.term === "string" ? entry.term.trim().slice(0, 300) : "";
+    if (!term) {
+      return { success: false, error: "Vocabulary term is empty" };
+    }
+    const videoId =
+      typeof entry?.videoId === "string" ? entry.videoId.trim() : "";
+    if (!/^[A-Za-z0-9_-]{6,20}$/.test(videoId)) {
+      return { success: false, error: "Invalid video ID" };
+    }
+
+    const timestampNumber = Number(entry?.timestampSeconds);
+    const safeTimestamp =
+      Number.isFinite(timestampNumber) && timestampNumber > 0
+        ? Math.floor(timestampNumber)
+        : 0;
+    const canonicalVideoUrl = YTD_SETTINGS.canonicalYouTubeUrl(videoId);
+
+    const vocabEntry = {
+      id: createVocabularyId(),
+      term,
+      explanation:
+        typeof entry?.explanation === "string"
+          ? entry.explanation.trim().slice(0, 5000)
+          : "",
+      videoId,
+      videoTitle:
+        typeof entry?.videoTitle === "string"
+          ? entry.videoTitle.slice(0, 500)
+          : "Untitled Video",
+      channelName:
+        typeof entry?.channelName === "string"
+          ? entry.channelName.slice(0, 300)
+          : "",
+      timestamp: YTD_SETTINGS.formatTimestamp(safeTimestamp),
+      timestampSeconds: safeTimestamp,
+      timestampedUrl: `${canonicalVideoUrl}&t=${safeTimestamp}s`,
+      createdAt: Date.now(),
+    };
+
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    const vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+    const updatedVocabulary = [vocabEntry, ...vocabulary].slice(0, 500);
+
+    await chrome.storage.local.set({ ytd_vocabulary: updatedVocabulary });
+    return { success: true, entry: vocabEntry };
+  } catch (error) {
+    console.error("[YouTube Digest] Save vocabulary error:", error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Gets vocabulary entries from storage, optionally filtered by video ID.
+ */
+async function handleGetVocabulary(videoId) {
+  try {
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    let vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+
+    if (videoId) {
+      vocabulary = vocabulary.filter((item) => item.videoId === videoId);
+    }
+
+    return { success: true, vocabulary };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * Deletes a vocabulary entry by ID.
+ */
+async function handleDeleteVocabulary(entryId) {
+  try {
+    const normalizedEntryId =
+      typeof entryId === "string" ? entryId.trim() : "";
+    if (!normalizedEntryId) {
+      return { success: false, error: "Invalid vocabulary entry ID" };
+    }
+
+    const result = await chrome.storage.local.get("ytd_vocabulary");
+    let vocabulary = Array.isArray(result.ytd_vocabulary)
+      ? result.ytd_vocabulary
+      : [];
+    vocabulary = vocabulary.filter((item) => item?.id !== normalizedEntryId);
+    await chrome.storage.local.set({ ytd_vocabulary: vocabulary });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
 async function handleExplainSelection(
   selectedText,
   transcriptContext,
@@ -1641,4 +1783,11 @@ globalThis.__YTD_TRANSLATION_TESTING__ = {
   validateTranscriptBatchRequest,
   normalizeTranslatedSegmentBatch,
   handleTranslateContent,
+};
+
+// Vocabulary handlers are exported the same way for the Node tests.
+globalThis.__YTD_VOCABULARY_TESTING__ = {
+  handleSaveVocabulary,
+  handleGetVocabulary,
+  handleDeleteVocabulary,
 };

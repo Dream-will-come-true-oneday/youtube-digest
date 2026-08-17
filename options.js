@@ -54,9 +54,10 @@ const YTD_OPTIONS = (() => {
       copyCustomizationPrompt: "Copy edited prompt",
       localData: "Local data",
       localDataHelp:
-        "Digests, translations, and notes are stored only in this Chrome profile. You can remove them at any time.",
+        "Digests, translations, notes, and up to 500 vocabulary entries are stored only in this Chrome profile. You can remove or export them at any time.",
       clearCache: "Clear cached digests",
       deleteNotes: "Delete all notes",
+      deleteVocabulary: "Delete all vocabulary",
       resetData: "Reset extension data",
       footer:
         'Read <a href="PRIVACY.md" target="_blank">PRIVACY.md</a> in the repository for the complete data-flow description.',
@@ -74,8 +75,9 @@ const YTD_OPTIONS = (() => {
       clearedDigests: ({ count }) =>
         `Cleared ${count} cached digest${count === 1 ? "" : "s"}.`,
       notesDeleted: "Deleted all saved notes.",
+      vocabularyDeleted: "Deleted all saved vocabulary.",
       resetConfirm:
-        "Delete API keys, cached digests, translations, and saved notes from this Chrome profile?",
+        "Delete API keys, cached digests, translations, saved notes, and vocabulary from this Chrome profile?",
       allDataDeleted: "All YouTube Digest data was deleted.",
       settingsLoadFailed:
         "Could not load saved settings. You can still preview this page.",
@@ -126,9 +128,10 @@ const YTD_OPTIONS = (() => {
       copyCustomizationPrompt: "复制编辑后的提示词",
       localData: "本地数据",
       localDataHelp:
-        "摘要、翻译和笔记仅保存在当前 Chrome 个人资料中。你可以随时删除。",
+        "摘要、翻译、笔记和最多 500 条生词仅保存在当前 Chrome 个人资料中。你可以随时删除或导出。",
       clearCache: "清除缓存的摘要",
       deleteNotes: "删除全部笔记",
+      deleteVocabulary: "删除全部生词",
       resetData: "重置扩展数据",
       footer:
         '完整数据流说明请参阅仓库中的 <a href="PRIVACY.md" target="_blank">PRIVACY.md</a>。',
@@ -144,8 +147,9 @@ const YTD_OPTIONS = (() => {
       copyFailed: "无法复制提示词。请选中提示词文本并手动复制。",
       clearedDigests: ({ count }) => `已清除 ${count} 条缓存摘要。`,
       notesDeleted: "已删除全部已保存的笔记。",
+      vocabularyDeleted: "已删除全部已保存的生词。",
       resetConfirm:
-        "要从当前 Chrome 个人资料中删除 API 密钥、缓存摘要、翻译和已保存的笔记吗？",
+        "要从当前 Chrome 个人资料中删除 API 密钥、缓存摘要、翻译、已保存的笔记和生词吗？",
       allDataDeleted: "已删除全部 YouTube Digest 数据。",
       settingsLoadFailed: "无法加载已保存的设置，但你仍可预览此页面。",
     },
@@ -551,6 +555,11 @@ const YTD_OPTIONS = (() => {
       setStatus(dataStatus, "notesDeleted");
     }
 
+    async function clearVocabulary() {
+      await storage.remove("ytd_vocabulary");
+      setStatus(dataStatus, "vocabularyDeleted");
+    }
+
     async function resetAllData() {
       const confirmed = root.confirm(
         translate(currentLanguage, "resetConfirm"),
@@ -573,6 +582,9 @@ const YTD_OPTIONS = (() => {
       .getElementById("clearCacheBtn")
       .addEventListener("click", clearCachedDigests);
     doc.getElementById("clearNotesBtn").addEventListener("click", clearNotes);
+    doc
+      .getElementById("clearVocabBtn")
+      .addEventListener("click", clearVocabulary);
     doc.getElementById("resetBtn").addEventListener("click", resetAllData);
     for (const button of languageButtons) {
       button.addEventListener("click", async () => {

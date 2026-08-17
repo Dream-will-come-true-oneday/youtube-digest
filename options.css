@@ -140,7 +140,7 @@ h1 {
   margin: 6px 0 8px;
   font-size: clamp(30px, 5vw, 46px);
   line-height: 1.08;
-  letter-spacing: -0.04em;
+  letter-spacing: 0;
 }
 
 .lede,

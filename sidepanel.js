@@ -606,6 +606,16 @@ function setupEventListeners() {
     });
   });
 
+  document
+    .getElementById("analysisTemplateSelect")
+    ?.addEventListener("change", () => {
+      currentAnalysis = null;
+      const overviewIsActive = document
+        .querySelector('[data-panel="overview"]')
+        ?.classList.contains("active");
+      if (overviewIsActive && !isAnalysisLoading) triggerAnalysis();
+    });
+
   // Follow playback button — re-enables auto-scroll after user scrolled away
   document
     .getElementById("followPlaybackBtn")
@@ -631,7 +641,40 @@ function setupEventListeners() {
     loadNotes(null); // Load all notes
   });
 
+  // Vocabulary filter buttons
+  document.getElementById("vocabFilterThis")?.addEventListener("click", () => {
+    setVocabFilter(false);
+    loadVocabulary(currentVideoId);
+  });
+  document.getElementById("vocabFilterAll")?.addEventListener("click", () => {
+    setVocabFilter(true);
+    loadVocabulary(null); // Load all entries
+  });
+
+  // Export buttons
+  document
+    .getElementById("exportNotesMdBtn")
+    ?.addEventListener("click", exportNotesMarkdown);
+  document
+    .getElementById("exportNotesCsvBtn")
+    ?.addEventListener("click", exportNotesCsv);
+  document
+    .getElementById("exportVocabMdBtn")
+    ?.addEventListener("click", exportVocabularyMarkdown);
+  document
+    .getElementById("exportVocabCsvBtn")
+    ?.addEventListener("click", exportVocabularyCsv);
+
   setupTranscriptSearch();
+}
+
+function setVocabFilter(showAll) {
+  const thisButton = document.getElementById("vocabFilterThis");
+  const allButton = document.getElementById("vocabFilterAll");
+  thisButton?.classList.toggle("active", !showAll);
+  thisButton?.setAttribute("aria-pressed", String(!showAll));
+  allButton?.classList.toggle("active", showAll);
+  allButton?.setAttribute("aria-pressed", String(showAll));
 }
 
 function setNotesFilter(showAll) {
@@ -813,6 +856,9 @@ async function startDigest(videoId, videoUrl) {
     // Load notes for this video
     loadNotes(videoId);
 
+    // Load vocabulary for this video
+    loadVocabulary(videoId);
+
     // Setup explain feature
     setupExplainFeature();
     if (currentTranscriptMode !== "original") translateTranscript();
@@ -870,6 +916,9 @@ async function startDigest(videoId, videoUrl) {
 
   // Load notes for this video
   loadNotes(videoId);
+
+  // Load vocabulary for this video
+  loadVocabulary(videoId);
 
   // Setup explain feature for text selection
   setupExplainFeature();
@@ -1189,11 +1238,15 @@ function showConfigError(configStatus) {
 
 function switchTab(tabName) {
   document.querySelectorAll(".tab").forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.tab === tabName);
+    const active = tab.dataset.tab === tabName;
+    tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", String(active));
   });
 
   document.querySelectorAll(".tab-panel").forEach((panel) => {
-    panel.classList.toggle("active", panel.dataset.panel === tabName);
+    const active = panel.dataset.panel === tabName;
+    panel.classList.toggle("active", active);
+    panel.setAttribute("aria-hidden", String(!active));
   });
 
   // Start/stop playback tracking based on which tab is active
@@ -1201,6 +1254,14 @@ function switchTab(tabName) {
     startPlaybackTracking();
   } else {
     stopPlaybackTracking();
+  }
+
+  // Lazy-load vocabulary when user switches to the Vocabulary tab
+  if (tabName === "vocabulary") {
+    const filterAll = document
+      .getElementById("vocabFilterAll")
+      ?.classList.contains("active");
+    loadVocabulary(filterAll ? null : currentVideoId);
   }
 
   // Lazy-load LLM analysis when user switches to Overview tab.
@@ -1258,7 +1319,17 @@ async function triggerAnalysis() {
       template: selectedTemplate,
     });
 
-    if (!analysisResult.success) {
+    const latestTemplate = templateSelect?.value || "general";
+    if (latestTemplate !== selectedTemplate) {
+      isAnalysisLoading = false;
+      const overviewIsActive = document
+        .querySelector('[data-panel="overview"]')
+        ?.classList.contains("active");
+      if (overviewIsActive) triggerAnalysis();
+      return;
+    }
+
+    if (!analysisResult?.success) {
       if (chapterList)
         chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Analysis failed: ${escapeHtml(analysisResult.error || "Unknown error")}</li>`;
       isAnalysisLoading = false;
@@ -1274,8 +1345,17 @@ async function triggerAnalysis() {
     await saveToCache(currentVideoId);
   } catch (error) {
     console.error("[YouTube Digest Panel] Analysis error:", error);
-    if (chapterList)
+    const latestTemplate = templateSelect?.value || "general";
+    if (chapterList && latestTemplate === selectedTemplate)
       chapterList.innerHTML = `<li class="chapter-item" style="color: var(--accent); border: none;">Error: ${escapeHtml(error.message)}</li>`;
+    if (latestTemplate !== selectedTemplate) {
+      isAnalysisLoading = false;
+      const overviewIsActive = document
+        .querySelector('[data-panel="overview"]')
+        ?.classList.contains("active");
+      if (overviewIsActive) triggerAnalysis();
+      return;
+    }
   }
 
   isAnalysisLoading = false;
@@ -1403,14 +1483,20 @@ async function copyToClipboardWithFeedback(text, buttonId) {
   }
 }
 
-function downloadTextFile(text, filename) {
-  const blob = new Blob([text], { type: "text/plain" });
+function downloadTextFile(
+  text,
+  filename,
+  mimeType = "text/plain;charset=utf-8",
+) {
+  const blob = new Blob([text], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function sanitizeFilename(str) {
@@ -1508,6 +1594,8 @@ function setupExplainFeature() {
  * Shows the explanation modal and fetches it from the configured AI provider.
  */
 async function showExplanation(selectedText) {
+  const selectionTimestampPromise = getCurrentPlaybackSeconds();
+
   // Create modal
   const modal = document.createElement("div");
   modal.id = "explainModal";
@@ -1516,7 +1604,7 @@ async function showExplanation(selectedText) {
     <div class="explain-modal">
       <div class="explain-modal-header">
         <div class="explain-modal-title">Explain</div>
-        <button class="explain-modal-close" id="closeExplain">✕</button>
+        <button class="explain-modal-close" id="closeExplain" type="button" aria-label="Close explanation">✕</button>
       </div>
       <div class="explain-selected-text">"${escapeHtml(selectedText.substring(0, 200))}${selectedText.length > 200 ? "..." : ""}"</div>
       <div class="explain-modal-content" id="explanationContent">
@@ -1550,15 +1638,65 @@ async function showExplanation(selectedText) {
       videoTitle: currentVideoTitle,
     });
 
-    const contentDiv = document.getElementById("explanationContent");
-    if (result.success) {
-      contentDiv.innerHTML = `<div class="explain-text">${escapeHtml(result.explanation).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>`;
+    const contentDiv = modal.querySelector("#explanationContent");
+    if (!contentDiv) return;
+    if (result?.success && typeof result.explanation === "string") {
+      contentDiv.innerHTML = `<div class="explain-text">${escapeHtml(result.explanation).replace(/\n\n/g, "</p><p>").replace(/\n/g, "<br>")}</div>
+        <div class="explain-save-vocab"><button class="explain-save-vocab-btn" type="button">＋ Save to vocabulary</button><span class="explain-save-vocab-status" role="status" aria-live="polite"></span></div>`;
+      const saveBtn = contentDiv.querySelector(".explain-save-vocab-btn");
+      const saveStatus = contentDiv.querySelector(
+        ".explain-save-vocab-status",
+      );
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          saveBtn.disabled = true;
+          saveBtn.textContent = "Saving...";
+          saveStatus.textContent = "";
+
+          try {
+            const timestampSeconds = await selectionTimestampPromise;
+            const saveResult = await chrome.runtime.sendMessage({
+              action: "saveVocabulary",
+              entry: {
+                term: selectedText.slice(0, 300),
+                explanation: result.explanation,
+                videoId: currentVideoId,
+                videoTitle: currentVideoTitle,
+                channelName: currentChannelName,
+                timestampSeconds,
+              },
+            });
+            if (!saveResult?.success) {
+              throw new Error(saveResult?.error || "Could not save vocabulary");
+            }
+
+            saveBtn.textContent = "✓ Saved";
+            saveStatus.textContent = "Added to Vocabulary.";
+            const showAll = document
+              .getElementById("vocabFilterAll")
+              ?.classList.contains("active");
+            loadVocabulary(showAll ? null : currentVideoId);
+          } catch (saveError) {
+            console.error(
+              "[YouTube Digest Panel] Save vocabulary error:",
+              saveError,
+            );
+            saveStatus.textContent = "Save failed. Try again.";
+            saveBtn.textContent = "＋ Save to vocabulary";
+            saveBtn.disabled = false;
+          }
+        });
+      }
     } else {
-      contentDiv.innerHTML = `<div class="explain-error">Failed to get explanation: ${escapeHtml(result.error)}</div>`;
+      contentDiv.innerHTML = `<div class="explain-error">Failed to get explanation: ${escapeHtml(result?.error || "Unknown error")}</div>`;
     }
   } catch (error) {
-    const contentDiv = document.getElementById("explanationContent");
-    contentDiv.innerHTML = `<div class="explain-error">Error: ${escapeHtml(error.message)}</div>`;
+    const contentDiv = modal.querySelector("#explanationContent");
+    if (contentDiv) {
+      contentDiv.innerHTML = `<div class="explain-error">Error: ${escapeHtml(error.message)}</div>`;
+    }
   }
 }
 
@@ -1833,6 +1971,441 @@ async function deleteNote(noteId) {
   } catch (error) {
     console.error("[YouTube Digest Panel] Delete note error:", error);
   }
+}
+
+// ============================================================
+// VOCABULARY — word/phrase entries with explanations
+// ============================================================
+
+/**
+ * Loads vocabulary entries from storage and renders them.
+ * @param {string|null} videoId - Filter by video ID, or null for all
+ */
+async function loadVocabulary(videoId) {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: "getVocabulary",
+      videoId: videoId,
+    });
+
+    if (result?.success) {
+      renderVocabulary(result.vocabulary, videoId);
+    } else {
+      renderVocabularyError("Could not load vocabulary. Try again.");
+    }
+  } catch (error) {
+    console.error("[YouTube Digest Panel] Load vocabulary error:", error);
+    renderVocabularyError("Could not load vocabulary. Try again.");
+  }
+}
+
+function renderVocabularyError(message) {
+  const vocabList = document.getElementById("vocabList");
+  const vocabIntro = document.getElementById("vocabIntro");
+  if (vocabList) vocabList.innerHTML = "";
+  if (!vocabIntro) return;
+  vocabIntro.style.display = "block";
+  vocabIntro.classList.add("error");
+  vocabIntro.textContent = message;
+}
+
+/**
+ * Renders vocabulary entries in the Vocabulary tab.
+ */
+function renderVocabulary(entries, filteredVideoId) {
+  const vocabList = document.getElementById("vocabList");
+  const vocabIntro = document.getElementById("vocabIntro");
+
+  if (!vocabList) return;
+  vocabList.innerHTML = "";
+  vocabIntro?.classList.remove("error");
+
+  if (!entries || entries.length === 0) {
+    vocabIntro.style.display = "block";
+    vocabIntro.textContent = filteredVideoId
+      ? "No vocabulary for this video yet."
+      : "No vocabulary saved yet.";
+    return;
+  }
+
+  vocabIntro.style.display = "none";
+
+  entries.forEach((entry) => {
+    const el = document.createElement("div");
+    el.className = "note-item vocab-entry";
+    el.innerHTML = `
+      <div class="note-header">
+        <span class="note-timestamp" data-url="${escapeHtml(entry.timestampedUrl)}" data-seconds="${Number(entry.timestampSeconds) || 0}">${escapeHtml(entry.timestamp)}</span>
+        ${!filteredVideoId ? `<span class="note-video-title">${escapeHtml(entry.videoTitle)}</span>` : ""}
+        <button class="note-delete" data-id="${escapeHtml(entry.id)}" type="button" aria-label="Delete ${escapeHtml(entry.term)}" title="Delete entry">✕</button>
+      </div>
+      <div class="vocab-term">${escapeHtml(entry.term)}</div>
+      <div class="vocab-explanation">${escapeHtml(entry.explanation)}</div>
+      <div class="note-actions">
+        <button class="note-action-btn vocab-copy-term" type="button">⧉ Copy term</button>
+        <button class="note-action-btn vocab-copy-link" type="button" data-url="${escapeHtml(entry.timestampedUrl)}">🔗 Copy timestamp</button>
+        <button class="note-action-btn vocab-play" type="button" data-seconds="${Number(entry.timestampSeconds) || 0}">▶ Play</button>
+      </div>
+    `;
+
+    el.querySelector(".note-timestamp").addEventListener("click", () => {
+      playNote({
+        videoId: entry.videoId,
+        timestampSeconds: entry.timestampSeconds,
+        timestampedUrl: entry.timestampedUrl,
+      });
+    });
+
+    el.querySelector(".note-delete").addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const deleteButton = e.currentTarget;
+      deleteButton.disabled = true;
+      const deleted = await deleteVocabularyEntry(entry.id);
+      if (deleted) {
+        loadVocabulary(filteredVideoId);
+      } else {
+        deleteButton.disabled = false;
+        deleteButton.textContent = "!";
+        deleteButton.title = "Delete failed. Try again.";
+      }
+    });
+
+    el.querySelector(".vocab-copy-term").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(entry.term);
+        const btn = el.querySelector(".vocab-copy-term");
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => { btn.textContent = "⧉ Copy term"; }, 2000);
+      } catch (err) {
+        console.error("Copy failed:", err);
+      }
+    });
+
+    el.querySelector(".vocab-copy-link").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(entry.timestampedUrl);
+        const btn = el.querySelector(".vocab-copy-link");
+        btn.textContent = "✓ Copied!";
+        setTimeout(() => { btn.textContent = "🔗 Copy timestamp"; }, 2000);
+      } catch (err) {
+        console.error("Copy failed:", err);
+      }
+    });
+
+    el.querySelector(".vocab-play").addEventListener("click", () => {
+      playNote({
+        videoId: entry.videoId,
+        timestampSeconds: entry.timestampSeconds,
+        timestampedUrl: entry.timestampedUrl,
+      });
+    });
+
+    vocabList.appendChild(el);
+  });
+}
+
+/**
+ * Deletes a vocabulary entry by ID.
+ */
+async function deleteVocabularyEntry(entryId) {
+  try {
+    const result = await chrome.runtime.sendMessage({
+      action: "deleteVocabulary",
+      entryId: entryId,
+    });
+    return result?.success === true;
+  } catch (error) {
+    console.error("[YouTube Digest Panel] Delete vocabulary error:", error);
+    return false;
+  }
+}
+
+// ============================================================
+// EXPORT — notes and vocabulary to Markdown / CSV
+// ============================================================
+
+function csvEscape(value) {
+  let text = String(value ?? "");
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function dateStamp(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function markdownEscape(value) {
+  return String(value ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/([`*_\[\]<>#|])/g, "\\$1");
+}
+
+function markdownInline(value) {
+  return markdownEscape(
+    String(value ?? "")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\s*\n+\s*/g, " ")
+      .trim(),
+  );
+}
+
+function markdownBlockquote(value) {
+  const text = String(value ?? "").replace(/\r\n?/g, "\n").trim();
+  if (!text) return ">";
+  return text
+    .split("\n")
+    .map((line) => `> ${markdownEscape(line)}`)
+    .join("\n");
+}
+
+/**
+ * Groups FlatList records (notes/vocab) by video, preserving newest-first
+ * per video. Used by the Markdown exports.
+ */
+function groupRecordsByVideo(records) {
+  const groups = new Map();
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    if (!record || typeof record !== "object") return;
+    const groupKey = String(
+      record.videoId || record.videoTitle || "untitled-video",
+    );
+    if (!groups.has(groupKey)) {
+      groups.set(groupKey, []);
+    }
+    groups.get(groupKey).push(record);
+  });
+  return groups;
+}
+
+function serializeNotesMarkdown(notes) {
+  if (!Array.isArray(notes) || notes.length === 0) return "";
+  const lines = ["# YouTube Digest Notes", ""];
+  for (const [, group] of groupRecordsByVideo(notes)) {
+    const title = markdownInline(group[0]?.videoTitle || "Untitled Video");
+    lines.push(`## ${title}`);
+    lines.push("");
+    group.forEach((note) => {
+      lines.push(
+        `- [${markdownInline(note.timestamp)}](${String(note.timestampedUrl || "")}) ${markdownInline(note.text)}`,
+      );
+    });
+    lines.push("");
+  }
+  return lines.join("\n").trimEnd() + "\n";
+}
+
+function serializeNotesCsv(notes) {
+  if (!Array.isArray(notes) || notes.length === 0) return "";
+  const rows = notes.map((note) =>
+    [
+      note?.timestamp,
+      note?.timestampSeconds,
+      note?.videoTitle,
+      note?.videoId,
+      note?.timestampedUrl,
+      note?.text,
+    ]
+      .map(csvEscape)
+      .join(","),
+  );
+  return `\uFEFF${[
+    "timestamp,timestampSeconds,videoTitle,videoId,url,text",
+    ...rows,
+  ].join("\r\n")}`;
+}
+
+function serializeVocabularyMarkdown(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+  const lines = ["# YouTube Digest Vocabulary", ""];
+  for (const [, group] of groupRecordsByVideo(entries)) {
+    const title = markdownInline(group[0]?.videoTitle || "Untitled Video");
+    lines.push(`## ${title}`);
+    lines.push("");
+    group.forEach((entry) => {
+      lines.push(
+        `### ${markdownInline(entry.term)}`,
+        "",
+        `Timestamp: [${markdownInline(entry.timestamp)}](${String(entry.timestampedUrl || "")})`,
+        "",
+        markdownBlockquote(entry.explanation),
+        "",
+      );
+    });
+  }
+  return lines.join("\n").trimEnd() + "\n";
+}
+
+function serializeVocabularyCsv(entries) {
+  if (!Array.isArray(entries) || entries.length === 0) return "";
+  const rows = entries.map((entry) =>
+    [
+      entry?.timestamp,
+      entry?.timestampSeconds,
+      entry?.videoTitle,
+      entry?.videoId,
+      entry?.timestampedUrl,
+      entry?.term,
+      entry?.explanation,
+    ]
+      .map(csvEscape)
+      .join(","),
+  );
+  return `\uFEFF${[
+    "timestamp,timestampSeconds,videoTitle,videoId,url,term,explanation",
+    ...rows,
+  ].join("\r\n")}`;
+}
+
+function setExportStatus(statusId, message, isError = false) {
+  const status = document.getElementById(statusId);
+  if (!status) return;
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+}
+
+async function exportCollection({
+  action,
+  collectionKey,
+  serializer,
+  filename,
+  mimeType,
+  buttonId,
+  statusId,
+  emptyMessage,
+  successSingular,
+  successPlural,
+}) {
+  const button = document.getElementById(buttonId);
+  if (button) button.disabled = true;
+  setExportStatus(statusId, "Preparing export...");
+
+  try {
+    const result = await chrome.runtime.sendMessage({ action, videoId: null });
+    if (!result?.success) {
+      throw new Error(result?.error || "Could not read local data");
+    }
+
+    const records = Array.isArray(result[collectionKey])
+      ? result[collectionKey]
+      : [];
+    if (records.length === 0) {
+      setExportStatus(statusId, emptyMessage);
+      return false;
+    }
+
+    const content = serializer(records);
+    if (!content) {
+      setExportStatus(statusId, emptyMessage);
+      return false;
+    }
+
+    downloadTextFile(content, filename, mimeType);
+    setExportStatus(
+      statusId,
+      `Exported ${records.length} ${records.length === 1 ? successSingular : successPlural}.`,
+    );
+    return true;
+  } catch (error) {
+    console.error("[YouTube Digest Panel] Export error:", error);
+    setExportStatus(statusId, "Export failed. Try again.", true);
+    return false;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function exportNotesMarkdown() {
+  return exportCollection({
+    action: "getNotes",
+    collectionKey: "notes",
+    serializer: serializeNotesMarkdown,
+    filename: `youtube-digest-notes-${dateStamp()}.md`,
+    mimeType: "text/markdown;charset=utf-8",
+    buttonId: "exportNotesMdBtn",
+    statusId: "notesExportStatus",
+    emptyMessage: "No notes to export.",
+    successSingular: "note",
+    successPlural: "notes",
+  });
+}
+
+function exportNotesCsv() {
+  return exportCollection({
+    action: "getNotes",
+    collectionKey: "notes",
+    serializer: serializeNotesCsv,
+    filename: `youtube-digest-notes-${dateStamp()}.csv`,
+    mimeType: "text/csv;charset=utf-8",
+    buttonId: "exportNotesCsvBtn",
+    statusId: "notesExportStatus",
+    emptyMessage: "No notes to export.",
+    successSingular: "note",
+    successPlural: "notes",
+  });
+}
+
+function exportVocabularyMarkdown() {
+  return exportCollection({
+    action: "getVocabulary",
+    collectionKey: "vocabulary",
+    serializer: serializeVocabularyMarkdown,
+    filename: `youtube-digest-vocabulary-${dateStamp()}.md`,
+    mimeType: "text/markdown;charset=utf-8",
+    buttonId: "exportVocabMdBtn",
+    statusId: "vocabExportStatus",
+    emptyMessage: "No vocabulary to export.",
+    successSingular: "vocabulary entry",
+    successPlural: "vocabulary entries",
+  });
+}
+
+function exportVocabularyCsv() {
+  return exportCollection({
+    action: "getVocabulary",
+    collectionKey: "vocabulary",
+    serializer: serializeVocabularyCsv,
+    filename: `youtube-digest-vocabulary-${dateStamp()}.csv`,
+    mimeType: "text/csv;charset=utf-8",
+    buttonId: "exportVocabCsvBtn",
+    statusId: "vocabExportStatus",
+    emptyMessage: "No vocabulary to export.",
+    successSingular: "vocabulary entry",
+    successPlural: "vocabulary entries",
+  });
+}
+
+/**
+ * Reads the video's current playback position, preferring the direct
+ * per-tab message and falling back to the background relay.
+ */
+async function getCurrentPlaybackSeconds() {
+  try {
+    if (youtubeTabId) {
+      try {
+        const payload = await chrome.tabs.sendMessage(youtubeTabId, {
+          action: "getCurrentTime",
+        });
+        if (typeof payload?.currentTime === "number") {
+          return Math.floor(payload.currentTime);
+        }
+      } catch (directErr) {
+        debugLog(
+          "[YouTube Digest Panel] Direct getCurrentTime failed in vocab save:",
+          directErr.message,
+        );
+      }
+    }
+    const result = await chrome.runtime.sendMessage({
+      action: "relayToContent",
+      payload: { action: "getCurrentTime" },
+    });
+    if (result?.success && result.response) {
+      return Math.floor(result.response.currentTime || 0);
+    }
+  } catch (error) {
+    // Fall through to 0 — vocab entries still save, just at 0:00.
+  }
+  return 0;
 }
 
 // ============================================================
@@ -2358,4 +2931,15 @@ globalThis.__YTD_TRANSCRIPT_TESTING__ = {
   alignTranslatedSegmentBatch,
   renderSubtitleInlineMarkup,
   renderTranscriptSegmentContent,
+};
+
+globalThis.__YTD_EXPORT_TESTING__ = {
+  csvEscape,
+  dateStamp,
+  groupRecordsByVideo,
+  markdownInline,
+  serializeNotesMarkdown,
+  serializeNotesCsv,
+  serializeVocabularyMarkdown,
+  serializeVocabularyCsv,
 };
